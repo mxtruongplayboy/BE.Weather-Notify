@@ -17,7 +17,7 @@ from firebase_admin import firestore as fb_firestore
 
 from app.config import get_settings
 from app.services import ai_personalization, alert_engine, push_sender, weather_client
-from app.services.alert_engine import Severity
+from app.services.alert_engine import Severity, Thresholds
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +128,9 @@ async def _process_location(
     pref_lightning = prefs.get("lightning", True)
     pref_storm = prefs.get("storm", True)
 
+    # Load thresholds from Firestore device doc (effectiveThresholds > systemThresholds > defaults)
+    thresholds = Thresholds.from_device_data(device_data)
+
     # Fetch weather data
     forecast = await weather_client.get_forecast(lat, lon)
     lightning = await weather_client.get_lightning(
@@ -151,6 +154,7 @@ async def _process_location(
                 pref_cold_snap=pref_cold_snap,
                 pref_lightning=pref_lightning,
                 pref_storm=pref_storm,
+                thresholds=thresholds,
             )
             if result:
                 title, body = result
@@ -178,6 +182,7 @@ async def _process_location(
                 pref_cold_snap=pref_cold_snap,
                 pref_lightning=pref_lightning,
                 pref_storm=pref_storm,
+                thresholds=thresholds,
             )
             if result:
                 title, body = result
@@ -211,6 +216,7 @@ async def _process_location(
         pref_lightning=pref_lightning,
         pref_storm=pref_storm,
         min_severity=Severity.WATCH,
+        thresholds=thresholds,
     )
 
     # Pre-compute weather dict once — shared by all alerts in this cycle

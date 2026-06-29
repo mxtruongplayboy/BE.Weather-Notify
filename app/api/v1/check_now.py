@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from firebase_admin import firestore as fb_firestore
 
 from app.services import ai_personalization, alert_engine, weather_client
-from app.services.alert_engine import Severity
+from app.services.alert_engine import Severity, Thresholds
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +101,8 @@ async def check_now(req: CheckNowRequest):
             logger.warning("check_now: forecast failed loc=%s: %s", location_id, exc)
             continue
 
+        thresholds = Thresholds.from_device_data(device_data)
+
         alerts = alert_engine.evaluate(
             forecast,
             weather_client.LightningData(),
@@ -113,6 +115,7 @@ async def check_now(req: CheckNowRequest):
             pref_lightning=False,
             pref_storm=False,
             min_severity=Severity.WATCH,
+            thresholds=thresholds,
         )
 
         # AI block — same as alert_worker

@@ -2,7 +2,7 @@
 Alert engine — evaluates weather data against user preferences and
 returns a list of alerts to send. Stateless; dedup is handled by alert_worker.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import IntEnum
 
 from app.services.weather_client import ForecastData, LightningData, StormData
@@ -33,36 +33,102 @@ class Alert:
 
 
 # ---------------------------------------------------------------------------
-# Internal thresholds
+# Thresholds — read from Firestore, defaults match Flutter systemThresholds
 # ---------------------------------------------------------------------------
 
-def _wind_severity(beaufort: int) -> Severity:
-    if beaufort >= 6: return Severity.WARNING   # ≥ 50 km/h
-    if beaufort >= 4: return Severity.WATCH     # ≥ 29 km/h — noticeable on motorbike
-    if beaufort >= 3: return Severity.ADVISORY  # ≥ 20 km/h
+@dataclass
+class Thresholds:
+    # Wind (Beaufort)
+    wind_advisory: float = 5.0
+    wind_watch:    float = 6.0
+    wind_warning:  float = 8.0
+    # Rain (mm/3h)
+    rain_advisory: float = 10.0
+    rain_watch:    float = 25.0
+    rain_warning:  float = 50.0
+    # Heat (°C feels-like, above triggers)
+    heat_advisory: float = 35.0
+    heat_watch:    float = 38.0
+    heat_warning:  float = 40.0
+    # Cold (°C feels-like, below triggers)
+    cold_advisory: float = 15.0
+    cold_watch:    float = 10.0
+    cold_warning:  float = 5.0
+
+    @classmethod
+    def from_device_data(cls, device_data: dict) -> "Thresholds":
+        """
+        Build thresholds from Firestore device document.
+
+        AI ON  → effectiveThresholds (AI-adjusted watch) > systemThresholds > defaults
+        AI OFF → systemThresholds > defaults  (effectiveThresholds ignored)
+        """
+        ai_enabled = (device_data.get("aiPersonalization") or {}).get("enabled", False)
+        system     = device_data.get("systemThresholds") or {}
+        effective  = (device_data.get("effectiveThresholds") or {}) if ai_enabled else {}
+
+        def _eff(typ: str, level: str) -> float | None:
+            v = (effective.get(typ) or {}).get(level)
+            return float(v) if v is not None else None
+
+        def _sys(typ: str, level: str) -> float | None:
+            v = (system.get(typ) or {}).get(level)
+            return float(v) if v is not None else None
+
+        def _pick(typ: str, level: str, default: float) -> float:
+            # effectiveThresholds only carries 'watch'; use for watch when AI is on
+            if level == "watch" and ai_enabled:
+                return _eff(typ, level) or _sys(typ, level) or default
+            return _sys(typ, level) or default
+
+        return cls(
+            wind_advisory = _pick("wind", "advisory", 5.0),
+            wind_watch    = _pick("wind", "watch",    6.0),
+            wind_warning  = _pick("wind", "warning",  8.0),
+            rain_advisory = _pick("rain", "advisory", 10.0),
+            rain_watch    = _pick("rain", "watch",    25.0),
+            rain_warning  = _pick("rain", "warning",  50.0),
+            heat_advisory = _pick("heat", "advisory", 35.0),
+            heat_watch    = _pick("heat", "watch",    38.0),
+            heat_warning  = _pick("heat", "warning",  40.0),
+            cold_advisory = _pick("cold", "advisory", 15.0),
+            cold_watch    = _pick("cold", "watch",    10.0),
+            cold_warning  = _pick("cold", "warning",  5.0),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Internal severity helpers — use Thresholds
+# ---------------------------------------------------------------------------
+
+def _wind_severity(beaufort: int, t: Thresholds) -> Severity:
+    if beaufort >= t.wind_warning:  return Severity.WARNING
+    if beaufort >= t.wind_watch:    return Severity.WATCH
+    if beaufort >= t.wind_advisory: return Severity.ADVISORY
     return Severity.NONE
 
 
-def _rain_severity(mm: float, prob: float = 0.0) -> Severity:
-    if mm >= 10:    return Severity.WARNING
-    if mm >= 3:     return Severity.WATCH
-    if mm >= 1:     return Severity.ADVISORY
-    if prob >= 80:  return Severity.WATCH
-    if prob >= 60:  return Severity.ADVISORY
+def _rain_severity(mm: float, prob: float, t: Thresholds) -> Severity:
+    if mm >= t.rain_warning:  return Severity.WARNING
+    if mm >= t.rain_watch:    return Severity.WATCH
+    if mm >= t.rain_advisory: return Severity.ADVISORY
+    # Probability-based fallback (only when mm is low)
+    if prob >= 80: return Severity.WATCH
+    if prob >= 60: return Severity.ADVISORY
     return Severity.NONE
 
 
-def _heat_severity(feels_like: float) -> Severity:
-    if feels_like >= 38: return Severity.WARNING
-    if feels_like >= 35: return Severity.WATCH
-    if feels_like >= 33: return Severity.ADVISORY
+def _heat_severity(feels_like: float, t: Thresholds) -> Severity:
+    if feels_like >= t.heat_warning:  return Severity.WARNING
+    if feels_like >= t.heat_watch:    return Severity.WATCH
+    if feels_like >= t.heat_advisory: return Severity.ADVISORY
     return Severity.NONE
 
 
-def _cold_severity(feels_like: float) -> Severity:
-    if feels_like < 10: return Severity.WARNING
-    if feels_like < 15: return Severity.WATCH
-    if feels_like < 20: return Severity.ADVISORY
+def _cold_severity(feels_like: float, t: Thresholds) -> Severity:
+    if feels_like < t.cold_warning:  return Severity.WARNING
+    if feels_like < t.cold_watch:    return Severity.WATCH
+    if feels_like < t.cold_advisory: return Severity.ADVISORY
     return Severity.NONE
 
 
@@ -95,7 +161,9 @@ def evaluate(
     pref_lightning: bool = True,
     pref_storm: bool = True,
     min_severity: Severity = Severity.WATCH,
+    thresholds: Thresholds | None = None,
 ) -> list[Alert]:
+    t = thresholds or Thresholds()
     alerts: list[Alert] = []
 
     # ── Thunderstorm ──────────────────────────────────────────────────────
@@ -111,7 +179,7 @@ def evaluate(
 
     # ── Strong wind ───────────────────────────────────────────────────────
     if pref_strong_wind:
-        sev = _wind_severity(forecast.max_wind_beaufort)
+        sev = _wind_severity(forecast.max_wind_beaufort, t)
         if sev >= min_severity:
             when = _fmt_hour(forecast.peak_wind_hour)
             intensity = {Severity.ADVISORY: "nhẹ", Severity.WATCH: "mạnh", Severity.WARNING: "rất mạnh"}[sev]
@@ -130,11 +198,11 @@ def evaluate(
 
     # ── Heavy rain ────────────────────────────────────────────────────────
     if pref_heavy_rain:
-        sev = _rain_severity(forecast.rain_mm_3h, forecast.max_rain_prob)
+        sev = _rain_severity(forecast.rain_mm_3h, forecast.max_rain_prob, t)
         if sev >= min_severity:
             when = _fmt_hour(forecast.peak_rain_hour)
             intensity = {Severity.ADVISORY: "nhẹ", Severity.WATCH: "vừa", Severity.WARNING: "lớn"}[sev]
-            if forecast.rain_mm_3h >= 1:
+            if forecast.rain_mm_3h >= t.rain_advisory:
                 body = f"{forecast.rain_mm_3h:.1f} mm dự kiến đổ xuống từ {when}. Mang theo áo mưa."
             else:
                 body = f"Xác suất mưa {int(forecast.max_rain_prob)}% lúc {when}. Nên mang theo áo mưa đề phòng."
@@ -148,7 +216,7 @@ def evaluate(
 
     # ── Rain shower (from weather code, not yet captured by mm) ──────────
     if pref_heavy_rain and forecast.has_rain_shower:
-        if _rain_severity(forecast.rain_mm_3h, forecast.max_rain_prob) < Severity.WATCH:
+        if _rain_severity(forecast.rain_mm_3h, forecast.max_rain_prob, t) < Severity.WATCH:
             when = _fmt_hour(forecast.peak_rain_hour)
             alerts.append(Alert(
                 alert_type="heavy_rain",
@@ -160,7 +228,7 @@ def evaluate(
 
     # ── Heatwave ──────────────────────────────────────────────────────────
     if pref_heatwave:
-        sev = _heat_severity(forecast.max_feels_like)
+        sev = _heat_severity(forecast.max_feels_like, t)
         if sev >= min_severity:
             when = _fmt_hour(forecast.peak_heat_hour)
             intensity = {Severity.ADVISORY: "gay gắt", Severity.WATCH: "cực đoan", Severity.WARNING: "nguy hiểm"}[sev]
@@ -179,7 +247,7 @@ def evaluate(
 
     # ── Cold snap ─────────────────────────────────────────────────────────
     if pref_cold_snap:
-        sev = _cold_severity(forecast.min_feels_like)
+        sev = _cold_severity(forecast.min_feels_like, t)
         if sev >= min_severity:
             when = _fmt_hour(forecast.peak_cold_hour)
             intensity = {Severity.ADVISORY: "nhẹ", Severity.WATCH: "đậm", Severity.WARNING: "cực đoan"}[sev]
@@ -235,6 +303,7 @@ def build_summary(
     pref_cold_snap: bool,
     pref_lightning: bool = True,
     pref_storm: bool = True,
+    thresholds: Thresholds | None = None,
 ) -> tuple[str, str] | None:
     """Build (title, body) for daily morning/evening summary. Returns None if nothing notable."""
     alerts = evaluate(
@@ -247,6 +316,7 @@ def build_summary(
         pref_lightning=pref_lightning,
         pref_storm=pref_storm,
         min_severity=Severity.ADVISORY,
+        thresholds=thresholds,
     )
     if not alerts:
         return None
