@@ -124,7 +124,7 @@ async def _process_location(
     pref_strong_wind = prefs.get("strongWind", True)
     pref_heavy_rain = prefs.get("heavyRain", True)
     pref_heatwave = prefs.get("heatwave", True)
-    pref_cold_snap = prefs.get("coldSnap", False)
+    pref_cold_snap = prefs.get("coldSnap", True)
     pref_lightning = prefs.get("lightning", True)
     pref_storm = prefs.get("storm", True)
 

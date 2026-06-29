@@ -61,11 +61,12 @@ class CheckNowResponse(BaseModel):
 async def check_now(req: CheckNowRequest):
     db = fb_firestore.client()
 
-    # Load device data
+    # Load device data — auto-create skeleton if not yet synced from Flutter
     device_ref = db.collection("devices").document(req.instanceId)
     device_doc = device_ref.get()
     if not device_doc.exists:
-        raise HTTPException(status_code=404, detail="Device not found")
+        # Device hasn't synced yet; return empty rather than crashing
+        return CheckNowResponse(locationsChecked=0, alertsFound=0, alerts=[])
 
     device_data = device_doc.to_dict() or {}
 
@@ -105,7 +106,7 @@ async def check_now(req: CheckNowRequest):
             pref_strong_wind=prefs.get("strongWind", True),
             pref_heavy_rain=prefs.get("heavyRain", True),
             pref_heatwave=prefs.get("heatwave", True),
-            pref_cold_snap=prefs.get("coldSnap", False),
+            pref_cold_snap=prefs.get("coldSnap", True),
             pref_lightning=False,
             pref_storm=False,
             min_severity=Severity.WATCH,

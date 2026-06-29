@@ -30,7 +30,7 @@ class AlertPrefsPayload(BaseModel):
     strongWind: bool = True
     heavyRain: bool = True
     heatwave: bool = True
-    coldSnap: bool = False
+    coldSnap: bool = True
     scheduledEnabled: bool = True
     scheduledFromHour: int = 8
     scheduledFromMinute: int = 0

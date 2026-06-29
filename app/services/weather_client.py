@@ -154,7 +154,7 @@ async def get_forecast(lat: float, lon: float) -> ForecastData:
         winds  = [_f(v) for v in _next6("wind_speed_10m")]
         precip = [_f(v) for v in _next6("precipitation")]
         codes  = [_i(v) for v in _next6("weather_code")]
-        feels  = [_f(v) for v in _next6("apparent_temperature")]
+        feels  = [float(v) for v in _next6("apparent_temperature") if v is not None]
         rain_prob_raw = hourly.get("precipitation_probability") or []
         rain_prob6 = [_f(v) for v in rain_prob_raw[start: start + 3]]
 
