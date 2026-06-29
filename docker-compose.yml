@@ -1,0 +1,26 @@
+services:
+  weather_notify:
+    build: .
+    container_name: weather_notify
+    restart: unless-stopped
+    ports:
+      - "6964:8004"
+    environment:
+      - FIREBASE_CREDENTIALS_PATH=/secrets/firebase-service-account.json
+      - FORECAST_BE_URL=http://omfc-api:8080/v1
+      - TRACKING_BE_URL=http://weather_tracking:8002/api/v1
+      - ALERT_CHECK_INTERVAL_S=900
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./secrets:/secrets:ro
+    networks:
+      - weather-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  weather-net:
+    external: true
