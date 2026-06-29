@@ -215,7 +215,7 @@ async def _process_location(
 
     # Pre-compute weather dict once — shared by all alerts in this cycle
     weather_dict = {
-        "rainProb": min(forecast.rain_mm_3h / 50.0, 1.0),
+        "rainProb": min(forecast.max_rain_prob / 100.0, 1.0),
         "windBeaufort": forecast.max_wind_beaufort,
         "hasThunder": forecast.has_thunderstorm,
         "feelsLike": forecast.max_feels_like,

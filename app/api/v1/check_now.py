@@ -110,7 +110,7 @@ async def check_now(req: CheckNowRequest):
 
         # AI block — same as alert_worker
         weather_dict = {
-            "rainProb": min(forecast.rain_mm_3h / 10.0, 1.0),
+            "rainProb": min(forecast.max_rain_prob / 100.0, 1.0),
             "windBeaufort": forecast.max_wind_beaufort,
             "hasThunder": forecast.has_thunderstorm,
             "feelsLike": forecast.max_feels_like,
@@ -168,7 +168,7 @@ async def check_now(req: CheckNowRequest):
                 "isRead": False,
                 "source": "manualCheck",
                 "weatherSnapshot": {
-                    "rainProb": min(forecast.rain_mm_3h / 10.0, 1.0),
+                    "rainProb": min(forecast.max_rain_prob / 100.0, 1.0),
                     "windBeaufort": forecast.max_wind_beaufort,
                     "hasThunder": forecast.has_thunderstorm,
                     "feelsLike": forecast.max_feels_like,
