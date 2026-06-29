@@ -110,7 +110,7 @@ async def get_forecast(lat: float, lon: float) -> ForecastData:
         "latitude": lat,
         "longitude": lon,
         "hourly": (
-            "weathercode,windspeed_10m,precipitation,"
+            "weather_code,wind_speed_10m,precipitation,"
             "precipitation_probability,apparent_temperature"
         ),
         "daily": "precipitation_sum",
@@ -126,13 +126,19 @@ async def get_forecast(lat: float, lon: float) -> ForecastData:
         return ForecastData()
 
     try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
         hourly = data["hourly"]
         times: list[str] = hourly["time"]
 
-        # Find start index = current local hour
-        from datetime import datetime
-        now = datetime.now()
-        now_h = datetime(now.year, now.month, now.day, now.hour)
+        # Use timezone from Open-Meteo response (matches the location's local time)
+        tz_name = data.get("timezone", "UTC")
+        try:
+            tz = ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            tz = ZoneInfo("UTC")
+        now_local = datetime.now(tz)
+        now_h = datetime(now_local.year, now_local.month, now_local.day, now_local.hour)
         start = 0
         for i, t in enumerate(times):
             if datetime.fromisoformat(t) >= now_h:
@@ -142,9 +148,9 @@ async def get_forecast(lat: float, lon: float) -> ForecastData:
         def _next6(key: str) -> list:
             return hourly[key][start: start + 6]
 
-        winds = [float(v) for v in _next6("windspeed_10m")]
+        winds = [float(v) for v in _next6("wind_speed_10m")]
         precip = [float(v) for v in _next6("precipitation")]
-        codes = [int(v) for v in _next6("weathercode")]
+        codes = [int(v) for v in _next6("weather_code")]
         feels = [float(v) for v in _next6("apparent_temperature")]
         rain_prob_raw = hourly.get("precipitation_probability", [])
         rain_prob6 = [float(v) for v in rain_prob_raw[start: start + 3]] if rain_prob_raw else []

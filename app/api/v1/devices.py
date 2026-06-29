@@ -21,7 +21,7 @@ class RegisterRequest(BaseModel):
     fcmToken: str
     platform: str = "android"       # android | ios
     locale: Optional[str] = "vi"
-    timezone: Optional[str] = "Asia/Ho_Chi_Minh"
+    timezone: Optional[str] = "UTC"
     appVersion: Optional[str] = None
 
 

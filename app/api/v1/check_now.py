@@ -32,7 +32,8 @@ router = APIRouter(prefix="/v1", tags=["check-now"])
 
 class CheckNowRequest(BaseModel):
     instanceId: str
-    timezone: str = "Asia/Ho_Chi_Minh"
+    timezone: str = "UTC"
+    locationId: str | None = None  # if set, only check this location
 
 
 class AlertFound(BaseModel):
@@ -71,13 +72,15 @@ async def check_now(req: CheckNowRequest):
     try:
         now_local = datetime.now(ZoneInfo(req.timezone))
     except ZoneInfoNotFoundError:
-        now_local = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh"))
+        now_local = datetime.now(ZoneInfo("UTC"))
 
-    # Load enabled locations
+    # Load enabled locations (optionally filtered to a single locationId)
     locations = [
         (loc_doc.id, loc_doc.to_dict())
         for loc_doc in device_ref.collection("locations").stream()
-        if loc_doc.to_dict() and loc_doc.to_dict().get("isEnabled", True)
+        if loc_doc.to_dict()
+        and loc_doc.to_dict().get("isEnabled", True)
+        and (req.locationId is None or loc_doc.id == req.locationId)
     ]
 
     found_alerts: list[AlertFound] = []

@@ -83,7 +83,7 @@ def _local_now(tz_str: str) -> datetime:
     try:
         return datetime.now(ZoneInfo(tz_str))
     except ZoneInfoNotFoundError:
-        return datetime.now(ZoneInfo("Asia/Ho_Chi_Minh"))
+        return datetime.now(ZoneInfo("UTC"))
 
 
 def _inside_window(now_local: datetime, prefs: dict) -> bool:
@@ -328,7 +328,7 @@ async def run_alert_check() -> None:
 
             device_id = device_doc.id
             fcm_token = device_data.get("fcmToken", "")
-            tz_str = device_data.get("timezone", "Asia/Ho_Chi_Minh")
+            tz_str = device_data.get("timezone", "UTC")
 
             if not fcm_token:
                 continue
