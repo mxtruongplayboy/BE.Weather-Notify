@@ -45,6 +45,9 @@ class AlertFound(BaseModel):
     body: str
     aiEnabled: bool
     aiProbability: float | None
+    # Original content before AI rewrite (same as title/body when AI off)
+    originalTitle: str
+    originalBody: str
 
 
 class CheckNowResponse(BaseModel):
@@ -129,16 +132,20 @@ async def check_now(req: CheckNowRequest):
         )
 
         for alert in alerts:
-            final_title = f"{alert.title} · {name}"
-            final_body = alert.body
+            original_title = f"{alert.title} · {name}"
+            original_body = alert.body
+            final_title = original_title
+            final_body = original_body
             ai_enabled = False
             ai_prob: float | None = None
 
+            ai_features_list: list | None = None
             if ai_ready:
                 try:
                     features = ai_personalization.build_ai_features(
                         device_data, weather_dict, now_local,
                     )
+                    ai_features_list = features
                     ai_prob = round(ai_personalization.ai_predict(
                         list(ai_data.get("weights") or []),
                         float(ai_data.get("bias") or -4.844448),
@@ -168,7 +175,7 @@ async def check_now(req: CheckNowRequest):
                 "severity": alert.severity.name.lower(),
                 "aiEnabled": ai_enabled,
                 "aiProbability": ai_prob,
-                "aiFeatures": None,
+                "aiFeatures": ai_features_list,
                 "isRead": False,
                 "source": "manualCheck",
                 "weatherSnapshot": {
@@ -188,6 +195,8 @@ async def check_now(req: CheckNowRequest):
                 body=final_body,
                 aiEnabled=ai_enabled,
                 aiProbability=ai_prob,
+                originalTitle=original_title,
+                originalBody=original_body,
             ))
 
             logger.info(

@@ -29,6 +29,12 @@ class ForecastData:
     max_feels_like: float = 0.0
     min_feels_like: float = 0.0
     daily_rain_mm: float = 0.0
+    # Local hour (0-23) when each event peaks; -1 = unknown
+    first_thunder_hour: int = -1
+    peak_wind_hour: int = -1
+    peak_rain_hour: int = -1
+    peak_heat_hour: int = -1
+    peak_cold_hour: int = -1
 
 
 @dataclass
@@ -151,12 +157,26 @@ async def get_forecast(lat: float, lon: float) -> ForecastData:
         def _f(v, default=0.0): return float(v) if v is not None else default
         def _i(v, default=0):   return int(v)   if v is not None else default
 
+        # Actual local hours for each of the 6 slots
+        slot_hours = [
+            datetime.fromisoformat(times[start + i]).hour
+            if (start + i) < len(times) else -1
+            for i in range(6)
+        ]
+
         winds  = [_f(v) for v in _next6("wind_speed_10m")]
         precip = [_f(v) for v in _next6("precipitation")]
         codes  = [_i(v) for v in _next6("weather_code")]
-        feels  = [float(v) for v in _next6("apparent_temperature") if v is not None]
         rain_prob_raw = hourly.get("precipitation_probability") or []
         rain_prob6 = [_f(v) for v in rain_prob_raw[start: start + 3]]
+
+        # Temperature — keep (index, value) to find peak hours accurately
+        feels_indexed = [
+            (i, float(v))
+            for i, v in enumerate(_next6("apparent_temperature"))
+            if v is not None
+        ]
+        feels = [v for _, v in feels_indexed]
 
         max_wind = max(winds) if winds else 0.0
         rain_3h = sum(precip[:3])
@@ -168,6 +188,33 @@ async def get_forecast(lat: float, lon: float) -> ForecastData:
         except Exception:
             pass
 
+        # ── Peak timing ───────────────────────────────────────────────────
+        first_thunder_hour = next(
+            (slot_hours[i] for i, c in enumerate(codes) if c in _THUNDERSTORM_CODES),
+            -1,
+        )
+
+        peak_wind_hour = -1
+        if winds:
+            idx = winds.index(max(winds))
+            peak_wind_hour = slot_hours[idx] if idx < len(slot_hours) else -1
+
+        peak_rain_hour = -1
+        rain3 = precip[:3]
+        if rain3 and max(rain3) > 0:
+            idx = rain3.index(max(rain3))
+            peak_rain_hour = slot_hours[idx] if idx < len(slot_hours) else -1
+        elif rain_prob6 and max(rain_prob6) > 0:
+            idx = rain_prob6.index(max(rain_prob6))
+            peak_rain_hour = slot_hours[idx] if idx < len(slot_hours) else -1
+
+        peak_heat_hour = peak_cold_hour = -1
+        if feels_indexed:
+            hi_i, _ = max(feels_indexed, key=lambda x: x[1])
+            lo_i, _ = min(feels_indexed, key=lambda x: x[1])
+            peak_heat_hour = slot_hours[hi_i] if hi_i < len(slot_hours) else -1
+            peak_cold_hour = slot_hours[lo_i] if lo_i < len(slot_hours) else -1
+
         return ForecastData(
             has_thunderstorm=any(c in _THUNDERSTORM_CODES for c in codes),
             has_rain_shower=any(c in _RAIN_SHOWER_CODES for c in codes),
@@ -178,6 +225,11 @@ async def get_forecast(lat: float, lon: float) -> ForecastData:
             max_feels_like=max(feels) if feels else 0.0,
             min_feels_like=min(feels) if feels else 0.0,
             daily_rain_mm=daily_rain,
+            first_thunder_hour=first_thunder_hour,
+            peak_wind_hour=peak_wind_hour,
+            peak_rain_hour=peak_rain_hour,
+            peak_heat_hour=peak_heat_hour,
+            peak_cold_hour=peak_cold_hour,
         )
     except Exception as exc:
         logger.warning("weather_client: forecast parse error: %s", exc)
