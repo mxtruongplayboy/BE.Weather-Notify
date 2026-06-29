@@ -148,19 +148,23 @@ async def get_forecast(lat: float, lon: float) -> ForecastData:
         def _next6(key: str) -> list:
             return hourly[key][start: start + 6]
 
-        winds = [float(v) for v in _next6("wind_speed_10m")]
-        precip = [float(v) for v in _next6("precipitation")]
-        codes = [int(v) for v in _next6("weather_code")]
-        feels = [float(v) for v in _next6("apparent_temperature")]
-        rain_prob_raw = hourly.get("precipitation_probability", [])
-        rain_prob6 = [float(v) for v in rain_prob_raw[start: start + 3]] if rain_prob_raw else []
+        def _f(v, default=0.0): return float(v) if v is not None else default
+        def _i(v, default=0):   return int(v)   if v is not None else default
+
+        winds  = [_f(v) for v in _next6("wind_speed_10m")]
+        precip = [_f(v) for v in _next6("precipitation")]
+        codes  = [_i(v) for v in _next6("weather_code")]
+        feels  = [_f(v) for v in _next6("apparent_temperature")]
+        rain_prob_raw = hourly.get("precipitation_probability") or []
+        rain_prob6 = [_f(v) for v in rain_prob_raw[start: start + 3]]
 
         max_wind = max(winds) if winds else 0.0
         rain_3h = sum(precip[:3])
         max_rain_prob = max(rain_prob6) if rain_prob6 else 0.0
         daily_rain = 0.0
         try:
-            daily_rain = float((data.get("daily") or {}).get("precipitation_sum", [0])[0])
+            raw = ((data.get("daily") or {}).get("precipitation_sum") or [None])[0]
+            daily_rain = _f(raw)
         except Exception:
             pass
 
