@@ -16,7 +16,7 @@ import firebase_admin
 from firebase_admin import firestore as fb_firestore
 
 from app.config import get_settings
-from app.services import ai_personalization, alert_engine, push_sender, weather_client
+from app.services import ai_personalization, alert_engine, push_sender, translator, weather_client
 from app.services.alert_engine import Severity, Thresholds
 
 logger = logging.getLogger(__name__)
@@ -140,13 +140,17 @@ async def _process_location(
     )
     storms = await weather_client.get_storms_nearby(lat, lon, radius_km=cfg.storm_radius_km)
 
-    # ── Morning summary ────────────────────────────────────────────────────
+    language_code = device_data.get("languageCode")
+
+    # ── Morning summary — today's weather ───────────────────────────────────
     if prefs.get("morningEnabled", True):
         target = prefs.get("morningHour", 7) * 60 + prefs.get("morningMinute", 0)
         key = f"{device_id}__morning__{location_id}__{today}"
         if target <= now_mins < target + 15 and not _is_sent(db, key, cfg.summary_dedup_ttl_h):
-            result = alert_engine.build_summary(
-                name, forecast, lightning, storms,
+            today_forecast = await weather_client.get_forecast_for_day(lat, lon, day_offset=0)
+            title, body = alert_engine.build_summary(
+                name, today_forecast, lightning, storms,
+                day_label="Today",
                 pref_thunderstorm=pref_thunderstorm,
                 pref_strong_wind=pref_strong_wind,
                 pref_heavy_rain=pref_heavy_rain,
@@ -156,25 +160,26 @@ async def _process_location(
                 pref_storm=pref_storm,
                 thresholds=thresholds,
             )
-            if result:
-                title, body = result
-                ok, msg_id = push_sender.send_push(
-                    fcm_token, title, body,
-                    data={"type": "morning_summary", "locationId": location_id},
-                )
-                if ok:
-                    _mark_sent(db, key, "morning_summary", location_id, device_id)
-                elif msg_id and "INVALID_TOKEN" in str(msg_id):
-                    _deactivate_device(db, device_id)
-                    return
+            title, body = translator.translate_alert(title, body, language_code)
+            ok, msg_id = push_sender.send_push(
+                fcm_token, title, body,
+                data={"type": "morning_summary", "locationId": location_id},
+            )
+            if ok:
+                _mark_sent(db, key, "morning_summary", location_id, device_id)
+            elif msg_id and "INVALID_TOKEN" in str(msg_id):
+                _deactivate_device(db, device_id)
+                return
 
-    # ── Evening summary ────────────────────────────────────────────────────
+    # ── Evening summary — tomorrow's weather ────────────────────────────────
     if prefs.get("eveningEnabled", True):
         target = prefs.get("eveningHour", 18) * 60 + prefs.get("eveningMinute", 0)
         key = f"{device_id}__evening__{location_id}__{today}"
         if target <= now_mins < target + 15 and not _is_sent(db, key, cfg.summary_dedup_ttl_h):
-            result = alert_engine.build_summary(
-                name, forecast, lightning, storms,
+            tomorrow_forecast = await weather_client.get_forecast_for_day(lat, lon, day_offset=1)
+            title, body = alert_engine.build_summary(
+                name, tomorrow_forecast, lightning, storms,
+                day_label="Tomorrow",
                 pref_thunderstorm=pref_thunderstorm,
                 pref_strong_wind=pref_strong_wind,
                 pref_heavy_rain=pref_heavy_rain,
@@ -184,17 +189,16 @@ async def _process_location(
                 pref_storm=pref_storm,
                 thresholds=thresholds,
             )
-            if result:
-                title, body = result
-                ok, msg_id = push_sender.send_push(
-                    fcm_token, title, body,
-                    data={"type": "evening_summary", "locationId": location_id},
-                )
-                if ok:
-                    _mark_sent(db, key, "evening_summary", location_id, device_id)
-                elif msg_id and "INVALID_TOKEN" in str(msg_id):
-                    _deactivate_device(db, device_id)
-                    return
+            title, body = translator.translate_alert(title, body, language_code)
+            ok, msg_id = push_sender.send_push(
+                fcm_token, title, body,
+                data={"type": "evening_summary", "locationId": location_id},
+            )
+            if ok:
+                _mark_sent(db, key, "evening_summary", location_id, device_id)
+            elif msg_id and "INVALID_TOKEN" in str(msg_id):
+                _deactivate_device(db, device_id)
+                return
 
     # ── Real-time alerts ───────────────────────────────────────────────────
     inside_window = _inside_window(now_local, prefs)
@@ -284,6 +288,10 @@ async def _process_location(
                     device_id, alert.alert_type,
                 )
         # ── End AI Block ────────────────────────────────────────────────────
+
+        final_title, final_body = translator.translate_alert(
+            final_title, final_body, language_code,
+        )
 
         fcm_data: dict = {
             "type": alert.alert_type,

@@ -121,82 +121,82 @@ def build_ai_notification_content(
     feels_like = float(weather.get("feelsLike") or 25.0)
 
     if alert_type == "strong_wind":
-        label = "rất mạnh" if severity == "WARNING" else "mạnh"
+        label = "severe" if severity == "WARNING" else "strong"
         if is_motorbike:
             return (
-                f"💨 Gió {label} · Cẩn thận khi đi xe máy",
-                f"Cấp {beaufort} · Dễ mất lái, nên giảm tốc độ hoặc tránh đường lớn",
+                f"💨 {label.capitalize()} wind · Be careful on your motorbike",
+                f"Level {beaufort} · Easy to lose control — slow down or avoid main roads",
             )
         if is_car:
             return (
-                f"💨 Gió {label} · {location_name}",
-                f"Cấp {beaufort} · Chú ý xe tải cao và các cầu trống trải",
+                f"💨 {label.capitalize()} wind · {location_name}",
+                f"Level {beaufort} · Watch out for tall trucks and exposed bridges",
             )
         if is_walker:
             return (
-                f"💨 Gió {label} · Khó di chuyển",
-                f"Cấp {beaufort} · Nên hạn chế ra ngoài nếu được",
+                f"💨 {label.capitalize()} wind · Hard to move around",
+                f"Level {beaufort} · Better limit time outside if you can",
             )
         if occupation == "farmer":
             return (
-                "💨 Gió mạnh · Ảnh hưởng đồng áng",
-                f"Cấp {beaufort} · Thu dọn dụng cụ và che chắn cây trồng",
+                "💨 Strong wind · Affects farm work",
+                f"Level {beaufort} · Put away tools and secure your crops",
             )
 
     elif alert_type == "heavy_rain":
-        label = "rất lớn" if severity == "WARNING" else "lớn"
+        label = "very heavy" if severity == "WARNING" else "heavy"
         rain_str = f"{rain_mm:.1f}"
         if is_motorbike:
             return (
-                f"🌧️ Mưa {label} · Đường trơn nguy hiểm",
-                f"{rain_str}mm/3h · Mang áo mưa, giảm tốc độ",
+                f"🌧️ {label.capitalize()} rain · Slippery roads ahead",
+                f"{rain_str}mm/3h · Bring a raincoat and slow down",
             )
         if is_car:
             return (
-                f"🌧️ Mưa {label} · {location_name}",
-                f"{rain_str}mm trong 3 giờ tới · Tầm nhìn giảm khi lái",
+                f"🌧️ {label.capitalize()} rain · {location_name}",
+                f"{rain_str}mm in the next 3 hours · Reduced visibility while driving",
             )
         if is_walker:
             return (
-                f"🌧️ Mưa {label} · Mang ô/áo mưa",
-                f"{rain_str}mm/3h · Nên chuẩn bị trước khi ra ngoài",
+                f"🌧️ {label.capitalize()} rain · Bring an umbrella or raincoat",
+                f"{rain_str}mm/3h · Prepare before heading out",
             )
         if occupation == "farmer":
             return (
-                "🌧️ Mưa lớn · Ảnh hưởng mùa vụ",
-                f"{rain_str}mm · Kiểm tra hệ thống thoát nước",
+                "🌧️ Heavy rain · Affects the harvest",
+                f"{rain_str}mm · Check your drainage system",
             )
 
     elif alert_type == "thunderstorm":
         if is_outdoor_job:
             return (
-                "⛈️ Dông bão · Nguy hiểm khi làm ngoài trời",
-                "Tìm nơi trú ẩn ngay, tránh xa cây cao và khu trống",
+                "⛈️ Thunderstorm · Dangerous for outdoor work",
+                "Find shelter now, stay away from tall trees and open areas",
             )
         return (
-            "⛈️ Dông bão sắp đến",
-            "Có dông trong 6 giờ tới · Tìm nơi trú ẩn, tránh xa cây cao",
+            "⛈️ Thunderstorm approaching",
+            "Storms expected within 6 hours · Find shelter, stay away from tall trees",
         )
 
     elif alert_type == "heatwave":
         feels_str = f"{feels_like:.0f}"
         if is_outdoor_job:
             return (
-                "🌡️ Nắng nóng nguy hiểm · Hạn chế làm ngoài trời",
-                f"Cảm giác như {feels_str}°C · Uống nước, nghỉ chỗ mát",
+                "🌡️ Dangerous heat · Limit outdoor work",
+                f"Feels like {feels_str}°C · Drink water, rest somewhere cool",
             )
         if is_motorbike:
             return (
-                "🌡️ Nắng nóng · Cẩn thận khi đi đường",
-                f"Cảm giác như {feels_str}°C · Uống nước trước khi đi",
+                "🌡️ Heatwave · Take care on the road",
+                f"Feels like {feels_str}°C · Drink water before heading out",
             )
 
     elif alert_type == "cold_snap":
         feels_str = f"{feels_like:.0f}"
         if is_motorbike or is_walker:
             return (
-                "🥶 Rét đậm · Mặc ấm khi ra ngoài",
-                f"Cảm giác như {feels_str}°C · Mặc đủ ấm, cẩn thận đường trơn",
+                "🥶 Deep cold · Dress warmly before heading out",
+                f"Feels like {feels_str}°C · Wear enough layers, watch for slippery roads",
             )
 
     # lightning_nearby and storm_nearby: no transport/occupation variants

@@ -133,15 +133,12 @@ def _cold_severity(feels_like: float, t: Thresholds) -> Severity:
 
 
 def _fmt_hour(h: int) -> str:
-    """Convert local hour (0-23) to Vietnamese time expression."""
-    if h < 0:    return "trong vài giờ tới"
-    if h == 0:   return "nửa đêm"
-    if h < 5:    return f"{h} giờ đêm"
-    if h < 12:   return f"{h} giờ sáng"
-    if h == 12:  return "trưa"
-    if h < 18:   return f"{h - 12} giờ chiều"
-    if h < 22:   return f"{h} giờ tối"
-    return f"{h} giờ đêm"
+    """Convert local hour (0-23) to an English time expression."""
+    if h < 0:    return "in the next few hours"
+    if h == 0:   return "midnight"
+    if h < 12:   return f"{h} AM"
+    if h == 12:  return "noon"
+    return f"{h - 12} PM"
 
 
 # ---------------------------------------------------------------------------
@@ -172,8 +169,8 @@ def evaluate(
         alerts.append(Alert(
             alert_type="thunderstorm",
             severity=Severity.WARNING,
-            title=f"⛈️ Dông bão lúc {when}",
-            body=f"Sét và mưa lớn dự báo xuất hiện lúc {when}. Nên về nhà trước và tránh xa cây cao.",
+            title=f"⛈️ Thunderstorm at {when}",
+            body=f"Lightning and heavy rain are expected around {when}. Head home early and stay away from tall trees.",
             emoji="⛈️",
         ))
 
@@ -182,17 +179,17 @@ def evaluate(
         sev = _wind_severity(forecast.max_wind_beaufort, t)
         if sev >= min_severity:
             when = _fmt_hour(forecast.peak_wind_hour)
-            intensity = {Severity.ADVISORY: "nhẹ", Severity.WATCH: "mạnh", Severity.WARNING: "rất mạnh"}[sev]
+            intensity = {Severity.ADVISORY: "light", Severity.WATCH: "strong", Severity.WARNING: "severe"}[sev]
             advice = {
-                Severity.ADVISORY: "Chú ý khi đi xe máy.",
-                Severity.WATCH:    "Cẩn thận khi đi xe máy, tránh đường trống trải.",
-                Severity.WARNING:  "Hạn chế ra đường, tránh các khu vực cao và trống.",
+                Severity.ADVISORY: "Take care on a motorbike.",
+                Severity.WATCH:    "Ride carefully, avoid open roads.",
+                Severity.WARNING:  "Avoid going out; stay away from high, exposed areas.",
             }[sev]
             alerts.append(Alert(
                 alert_type="strong_wind",
                 severity=sev,
-                title=f"💨 Gió {intensity} từ {when}",
-                body=f"Cấp {forecast.max_wind_beaufort} ({int(forecast.max_wind_kph)} km/h) dự kiến từ {when}. {advice}",
+                title=f"💨 {intensity.capitalize()} wind from {when}",
+                body=f"Level {forecast.max_wind_beaufort} ({int(forecast.max_wind_kph)} km/h) expected from {when}. {advice}",
                 emoji="💨",
             ))
 
@@ -201,15 +198,15 @@ def evaluate(
         sev = _rain_severity(forecast.rain_mm_3h, forecast.max_rain_prob, t)
         if sev >= min_severity:
             when = _fmt_hour(forecast.peak_rain_hour)
-            intensity = {Severity.ADVISORY: "nhẹ", Severity.WATCH: "vừa", Severity.WARNING: "lớn"}[sev]
+            intensity = {Severity.ADVISORY: "light", Severity.WATCH: "moderate", Severity.WARNING: "heavy"}[sev]
             if forecast.rain_mm_3h >= t.rain_advisory:
-                body = f"{forecast.rain_mm_3h:.1f} mm dự kiến đổ xuống từ {when}. Mang theo áo mưa."
+                body = f"{forecast.rain_mm_3h:.1f} mm expected from {when}. Bring a raincoat."
             else:
-                body = f"Xác suất mưa {int(forecast.max_rain_prob)}% lúc {when}. Nên mang theo áo mưa đề phòng."
+                body = f"{int(forecast.max_rain_prob)}% chance of rain around {when}. Better bring a raincoat just in case."
             alerts.append(Alert(
                 alert_type="heavy_rain",
                 severity=sev,
-                title=f"🌧️ Mưa {intensity} từ {when}",
+                title=f"🌧️ {intensity.capitalize()} rain from {when}",
                 body=body,
                 emoji="🌧️",
             ))
@@ -221,8 +218,8 @@ def evaluate(
             alerts.append(Alert(
                 alert_type="heavy_rain",
                 severity=Severity.WATCH,
-                title=f"🌦️ Mưa rào lúc {when}",
-                body=f"Mưa rào bất chợt có thể xuất hiện lúc {when}. Chuẩn bị áo mưa.",
+                title=f"🌦️ Rain shower around {when}",
+                body=f"A sudden shower may appear around {when}. Keep a raincoat handy.",
                 emoji="🌦️",
             ))
 
@@ -231,17 +228,17 @@ def evaluate(
         sev = _heat_severity(forecast.max_feels_like, t)
         if sev >= min_severity:
             when = _fmt_hour(forecast.peak_heat_hour)
-            intensity = {Severity.ADVISORY: "gay gắt", Severity.WATCH: "cực đoan", Severity.WARNING: "nguy hiểm"}[sev]
+            intensity = {Severity.ADVISORY: "intense", Severity.WATCH: "extreme", Severity.WARNING: "dangerous"}[sev]
             advice = {
-                Severity.ADVISORY: "Hạn chế ra ngoài vào giờ đỉnh.",
-                Severity.WATCH:    "Uống nhiều nước, hạn chế ra ngoài từ 10–16 giờ.",
-                Severity.WARNING:  "Nguy hiểm cho sức khỏe. Không ra ngoài nếu không cần thiết.",
+                Severity.ADVISORY: "Limit time outdoors during peak hours.",
+                Severity.WATCH:    "Drink plenty of water, avoid going out from 10am–4pm.",
+                Severity.WARNING:  "Dangerous for your health. Avoid going outside unless necessary.",
             }[sev]
             alerts.append(Alert(
                 alert_type="heatwave",
                 severity=sev,
-                title=f"🌡️ Nắng nóng {intensity} lúc {when}",
-                body=f"Nhiệt độ cảm giác chạm {int(forecast.max_feels_like)}°C lúc {when}. {advice}",
+                title=f"🌡️ {intensity.capitalize()} heat around {when}",
+                body=f"Feels-like temperature reaching {int(forecast.max_feels_like)}°C around {when}. {advice}",
                 emoji="🌡️",
             ))
 
@@ -250,40 +247,40 @@ def evaluate(
         sev = _cold_severity(forecast.min_feels_like, t)
         if sev >= min_severity:
             when = _fmt_hour(forecast.peak_cold_hour)
-            intensity = {Severity.ADVISORY: "nhẹ", Severity.WATCH: "đậm", Severity.WARNING: "cực đoan"}[sev]
+            intensity = {Severity.ADVISORY: "light", Severity.WATCH: "deep", Severity.WARNING: "extreme"}[sev]
             advice = {
-                Severity.ADVISORY: "Mặc thêm áo khoác khi ra ngoài.",
-                Severity.WATCH:    "Mặc đủ ấm, hạn chế ở ngoài trời lâu.",
-                Severity.WARNING:  "Rét nguy hiểm. Mặc nhiều lớp, bảo vệ tay chân và mặt.",
+                Severity.ADVISORY: "Wear an extra jacket when heading out.",
+                Severity.WATCH:    "Dress warmly and limit time outdoors.",
+                Severity.WARNING:  "Dangerously cold. Wear layers and protect your hands, feet and face.",
             }[sev]
             alerts.append(Alert(
                 alert_type="cold_snap",
                 severity=sev,
-                title=f"🥶 Rét {intensity} lúc {when}",
-                body=f"Nhiệt độ cảm giác xuống {int(forecast.min_feels_like)}°C lúc {when}. {advice}",
+                title=f"🥶 {intensity.capitalize()} cold around {when}",
+                body=f"Feels-like temperature dropping to {int(forecast.min_feels_like)}°C around {when}. {advice}",
                 emoji="🥶",
             ))
 
     # ── Lightning nearby ──────────────────────────────────────────────────
     if pref_lightning and lightning.count > 0:
-        dist_str = f"{lightning.nearest_km} km" if lightning.nearest_km else "gần đây"
+        dist_str = f"{lightning.nearest_km} km" if lightning.nearest_km else "nearby"
         alerts.append(Alert(
             alert_type="lightning_nearby",
             severity=Severity.WARNING,
-            title="⚡ Sét đang hoạt động gần đây",
-            body=f"{lightning.count} tia sét ghi nhận trong vòng {dist_str}. Không đứng ngoài trời trống, tránh xa cây và cột điện.",
+            title="⚡ Lightning activity nearby",
+            body=f"{lightning.count} lightning strike(s) recorded within {dist_str}. Stay away from open areas, trees and power poles.",
             emoji="⚡",
         ))
 
     # ── Storm nearby ──────────────────────────────────────────────────────
     if pref_storm and storms.count > 0:
-        dist_str = f"{storms.nearest_km} km" if storms.nearest_km else "gần"
+        dist_str = f"{storms.nearest_km} km" if storms.nearest_km else "nearby"
         name_str = f" — {storms.nearest_name}" if storms.nearest_name else ""
         alerts.append(Alert(
             alert_type="storm_nearby",
             severity=Severity.WARNING,
-            title=f"🌀 Bão cách {dist_str}{name_str}",
-            body=f"{storms.count} cơn bão đang hoạt động trong khu vực. Theo dõi bản tin thời tiết và chuẩn bị phương án ứng phó.",
+            title=f"🌀 Storm {dist_str} away{name_str}",
+            body=f"{storms.count} active storm(s) in your area. Follow weather bulletins and prepare a response plan.",
             emoji="🌀",
         ))
 
@@ -296,6 +293,7 @@ def build_summary(
     lightning: LightningData,
     storms: StormData,
     *,
+    day_label: str,
     pref_thunderstorm: bool,
     pref_strong_wind: bool,
     pref_heavy_rain: bool,
@@ -304,8 +302,34 @@ def build_summary(
     pref_lightning: bool = True,
     pref_storm: bool = True,
     thresholds: Thresholds | None = None,
-) -> tuple[str, str] | None:
-    """Build (title, body) for daily morning/evening summary. Returns None if nothing notable."""
+) -> tuple[str, str]:
+    """
+    Build (title, body) for the morning/evening daily bulletin.
+
+    Unlike `evaluate()`, this ALWAYS returns content — a daily bulletin is a
+    general roundup ("what's the weather like"), not conditional on
+    something noteworthy happening. Notable events (rain/wind/heat/etc. at
+    ADVISORY level or above) are folded in as extra bullet points when they
+    exist; a calm, unremarkable day still gets a plain summary sentence.
+
+    `day_label`: e.g. "Today" (morning bulletin) or "Tomorrow" (evening
+    bulletin) — becomes part of the title.
+    """
+    lo = round(forecast.min_feels_like)
+    hi = round(forecast.max_feels_like)
+    temp_part = f"Feels like {lo}–{hi}°C" if lo != hi else f"Feels like {hi}°C"
+
+    if forecast.daily_rain_mm >= 1:
+        rain_part = f"{forecast.daily_rain_mm:.1f}mm of rain expected"
+    elif forecast.max_rain_prob >= 30:
+        rain_part = f"{int(forecast.max_rain_prob)}% chance of rain"
+    else:
+        rain_part = "mostly dry"
+
+    summary_bits = [temp_part, rain_part]
+    if forecast.max_wind_beaufort >= 4:
+        summary_bits.append(f"wind up to level {forecast.max_wind_beaufort}")
+
     alerts = evaluate(
         forecast, lightning, storms,
         pref_thunderstorm=pref_thunderstorm,
@@ -318,10 +342,11 @@ def build_summary(
         min_severity=Severity.ADVISORY,
         thresholds=thresholds,
     )
-    if not alerts:
-        return None
 
-    parts = [f"{a.emoji} {a.title.split(' ', 1)[-1]}" for a in alerts]
-    title = f"Dự báo cảnh báo · {location_name}"
-    body = " • ".join(parts)
+    body = ", ".join(summary_bits) + "."
+    if alerts:
+        highlights = " • ".join(f"{a.emoji} {a.title.split(' ', 1)[-1]}" for a in alerts)
+        body = f"{body} {highlights}"
+
+    title = f"{day_label}'s weather · {location_name}"
     return title, body

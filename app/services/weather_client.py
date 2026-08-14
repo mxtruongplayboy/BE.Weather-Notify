@@ -237,6 +237,154 @@ async def get_forecast(lat: float, lon: float) -> ForecastData:
 
 
 # ---------------------------------------------------------------------------
+# Full-day forecast — for morning (today) / evening (tomorrow) bulletins
+# ---------------------------------------------------------------------------
+
+async def get_forecast_for_day(lat: float, lon: float, day_offset: int) -> ForecastData:
+    """
+    Whole-day summary, unlike get_forecast() which only looks at the next 6
+    hours from *now*. A 7am bulletin needs the full day ahead — a 3pm
+    thunderstorm would be invisible to a 6-hour lookahead sent at 7am.
+
+    day_offset: 0 = today (used by the morning bulletin), 1 = tomorrow
+    (used by the evening bulletin).
+    """
+    cfg = get_settings()
+    url = f"{cfg.forecast_be_url}/forecast"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "hourly": (
+            "weather_code,wind_speed_10m,precipitation,"
+            "precipitation_probability,apparent_temperature"
+        ),
+        "daily": "precipitation_sum",
+        "forecast_days": max(2, day_offset + 1),
+        "timezone": "auto",
+    }
+    try:
+        resp = await get_client().get(url, params=params)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.warning(
+            "weather_client: daily forecast fetch failed lat=%s lon=%s day_offset=%s: %s",
+            lat, lon, day_offset, exc,
+        )
+        return ForecastData()
+
+    try:
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        hourly = data["hourly"]
+        times: list[str] = hourly["time"]
+
+        tz_name = data.get("timezone", "UTC")
+        try:
+            tz = ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            tz = ZoneInfo("UTC")
+        now_local = datetime.now(tz)
+        target_date = (now_local + timedelta(days=day_offset)).date()
+
+        # Every hourly index whose local date matches the target day.
+        idxs = [
+            i for i, t in enumerate(times)
+            if datetime.fromisoformat(t).date() == target_date
+        ]
+        if not idxs:
+            return ForecastData()
+        start, end = idxs[0], idxs[-1] + 1
+
+        def _f(v, default=0.0): return float(v) if v is not None else default
+        def _i(v, default=0):   return int(v)   if v is not None else default
+
+        slot_hours = [datetime.fromisoformat(times[i]).hour for i in range(start, end)]
+
+        winds  = [_f(v) for v in hourly["wind_speed_10m"][start:end]]
+        precip = [_f(v) for v in hourly["precipitation"][start:end]]
+        codes  = [_i(v) for v in hourly["weather_code"][start:end]]
+        rain_prob_raw = (hourly.get("precipitation_probability") or [])[start:end]
+        rain_probN = [_f(v) for v in rain_prob_raw]
+
+        feels_indexed = [
+            (i, float(v))
+            for i, v in enumerate(hourly["apparent_temperature"][start:end])
+            if v is not None
+        ]
+        feels = [v for _, v in feels_indexed]
+
+        max_wind = max(winds) if winds else 0.0
+
+        # Peak *rolling* 3-hour rain sum across the whole day — not the day
+        # total. rain_mm_3h feeds thresholds calibrated for a 3h window
+        # (rain_watch=25mm/3h etc.); a day total would blow past those for
+        # perfectly ordinary drizzle spread over 24h.
+        rain_mm_3h = 0.0
+        peak_rain_hour = -1
+        if len(precip) >= 3:
+            window_sums = [sum(precip[i:i + 3]) for i in range(len(precip) - 2)]
+            best = max(range(len(window_sums)), key=lambda i: window_sums[i])
+            rain_mm_3h = window_sums[best]
+            if rain_mm_3h > 0:
+                peak_rain_hour = slot_hours[best]
+        elif precip:
+            rain_mm_3h = sum(precip)
+            if rain_mm_3h > 0:
+                peak_rain_hour = slot_hours[0]
+
+        max_rain_prob = max(rain_probN) if rain_probN else 0.0
+        if peak_rain_hour == -1 and rain_probN and max(rain_probN) > 0:
+            idx = rain_probN.index(max(rain_probN))
+            peak_rain_hour = slot_hours[idx]
+
+        daily_rain = 0.0
+        try:
+            sums = (data.get("daily") or {}).get("precipitation_sum") or []
+            raw = sums[day_offset] if day_offset < len(sums) else None
+            daily_rain = _f(raw)
+        except Exception:
+            pass
+
+        first_thunder_hour = next(
+            (slot_hours[i] for i, c in enumerate(codes) if c in _THUNDERSTORM_CODES),
+            -1,
+        )
+
+        peak_wind_hour = -1
+        if winds:
+            idx = winds.index(max(winds))
+            peak_wind_hour = slot_hours[idx]
+
+        peak_heat_hour = peak_cold_hour = -1
+        if feels_indexed:
+            hi_i, _ = max(feels_indexed, key=lambda x: x[1])
+            lo_i, _ = min(feels_indexed, key=lambda x: x[1])
+            peak_heat_hour = slot_hours[hi_i]
+            peak_cold_hour = slot_hours[lo_i]
+
+        return ForecastData(
+            has_thunderstorm=any(c in _THUNDERSTORM_CODES for c in codes),
+            has_rain_shower=any(c in _RAIN_SHOWER_CODES for c in codes),
+            max_wind_kph=max_wind,
+            max_wind_beaufort=_beaufort(max_wind),
+            rain_mm_3h=rain_mm_3h,
+            max_rain_prob=max_rain_prob,
+            max_feels_like=max(feels) if feels else 0.0,
+            min_feels_like=min(feels) if feels else 0.0,
+            daily_rain_mm=daily_rain,
+            first_thunder_hour=first_thunder_hour,
+            peak_wind_hour=peak_wind_hour,
+            peak_rain_hour=peak_rain_hour,
+            peak_heat_hour=peak_heat_hour,
+            peak_cold_hour=peak_cold_hour,
+        )
+    except Exception as exc:
+        logger.warning("weather_client: daily forecast parse error: %s", exc)
+        return ForecastData()
+
+
+# ---------------------------------------------------------------------------
 # Lightning (BE.Weather-Tracking)
 # ---------------------------------------------------------------------------
 
