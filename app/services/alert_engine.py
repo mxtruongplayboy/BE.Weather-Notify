@@ -1,6 +1,21 @@
 """
 Alert engine — evaluates weather data against user preferences and
 returns a list of alerts to send. Stateless; dedup is handled by alert_worker.
+
+Giọng văn của nội dung thông báo
+--------------------------------
+Mọi `body` viết bằng tiếng Anh, ngắn, và **kể nửa chừng**: nêu đúng con số
+cùng mốc giờ *bắt đầu*, rồi để phần "kéo dài bao lâu / đỉnh điểm lúc nào /
+khi nào tạnh" lại cho app, kết bằng một lời mời chạm vào. Mục tiêu là user
+mở app để biết nốt phần còn lại.
+
+Một ngoại lệ cứng: **alert ở mức `Severity.WARNING` luôn giữ nguyên lời
+khuyên an toàn** ngay trong body. Giữ lại thông tin có thể ảnh hưởng tới an
+toàn của người đọc để đổi lấy một lượt mở app là không chấp nhận được — với
+mức WARNING thì lời khuyên đứng trước, lời mời chạm vào đứng sau.
+
+Dịch sang ngôn ngữ khác do `translator.py` lo, và luôn fallback về đúng
+chuỗi tiếng Anh ở đây khi dịch lỗi.
 """
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -170,7 +185,9 @@ def evaluate(
             alert_type="thunderstorm",
             severity=Severity.WARNING,
             title=f"⛈️ Thunderstorm at {when}",
-            body=f"Lightning and heavy rain are expected around {when}. Head home early and stay away from tall trees.",
+            # WARNING giữ nguyên lời khuyên an toàn — xem ghi chú ở đầu
+            # phần "Giọng văn" của module.
+            body=f"Lightning and heavy rain around {when}. Head home early — tap to see how long it lasts.",
             emoji="⛈️",
         ))
 
@@ -180,16 +197,19 @@ def evaluate(
         if sev >= min_severity:
             when = _fmt_hour(forecast.peak_wind_hour)
             intensity = {Severity.ADVISORY: "light", Severity.WATCH: "strong", Severity.WARNING: "severe"}[sev]
-            advice = {
-                Severity.ADVISORY: "Take care on a motorbike.",
-                Severity.WATCH:    "Ride carefully, avoid open roads.",
-                Severity.WARNING:  "Avoid going out; stay away from high, exposed areas.",
-            }[sev]
+            if sev >= Severity.WARNING:
+                body = (
+                    f"Level {forecast.max_wind_beaufort} "
+                    f"({int(forecast.max_wind_kph)} km/h) from {when}. "
+                    "Avoid high, exposed areas — tap for the hourly picture."
+                )
+            else:
+                body = f"Level {forecast.max_wind_beaufort} from {when}. Tap to see when it peaks."
             alerts.append(Alert(
                 alert_type="strong_wind",
                 severity=sev,
                 title=f"💨 {intensity.capitalize()} wind from {when}",
-                body=f"Level {forecast.max_wind_beaufort} ({int(forecast.max_wind_kph)} km/h) expected from {when}. {advice}",
+                body=body,
                 emoji="💨",
             ))
 
@@ -200,9 +220,9 @@ def evaluate(
             when = _fmt_hour(forecast.peak_rain_hour)
             intensity = {Severity.ADVISORY: "light", Severity.WATCH: "moderate", Severity.WARNING: "heavy"}[sev]
             if forecast.rain_mm_3h >= t.rain_advisory:
-                body = f"{forecast.rain_mm_3h:.1f} mm expected from {when}. Bring a raincoat."
+                body = f"{forecast.rain_mm_3h:.1f} mm from {when}. Tap to see when it eases off."
             else:
-                body = f"{int(forecast.max_rain_prob)}% chance of rain around {when}. Better bring a raincoat just in case."
+                body = f"{int(forecast.max_rain_prob)}% chance around {when}. Tap to see the hour-by-hour."
             alerts.append(Alert(
                 alert_type="heavy_rain",
                 severity=sev,
@@ -219,7 +239,7 @@ def evaluate(
                 alert_type="heavy_rain",
                 severity=Severity.WATCH,
                 title=f"🌦️ Rain shower around {when}",
-                body=f"A sudden shower may appear around {when}. Keep a raincoat handy.",
+                body=f"A sudden shower may hit around {when}. Tap to check before you head out.",
                 emoji="🌦️",
             ))
 
@@ -229,16 +249,19 @@ def evaluate(
         if sev >= min_severity:
             when = _fmt_hour(forecast.peak_heat_hour)
             intensity = {Severity.ADVISORY: "intense", Severity.WATCH: "extreme", Severity.WARNING: "dangerous"}[sev]
-            advice = {
-                Severity.ADVISORY: "Limit time outdoors during peak hours.",
-                Severity.WATCH:    "Drink plenty of water, avoid going out from 10am–4pm.",
-                Severity.WARNING:  "Dangerous for your health. Avoid going outside unless necessary.",
-            }[sev]
+            feels = int(forecast.max_feels_like)
+            if sev >= Severity.WARNING:
+                body = (
+                    f"Feels like {feels}°C around {when}. Dangerous for your "
+                    "health — tap to see the safe hours."
+                )
+            else:
+                body = f"Feels like {feels}°C around {when}. Tap to see the cooler hours."
             alerts.append(Alert(
                 alert_type="heatwave",
                 severity=sev,
                 title=f"🌡️ {intensity.capitalize()} heat around {when}",
-                body=f"Feels-like temperature reaching {int(forecast.max_feels_like)}°C around {when}. {advice}",
+                body=body,
                 emoji="🌡️",
             ))
 
@@ -248,16 +271,19 @@ def evaluate(
         if sev >= min_severity:
             when = _fmt_hour(forecast.peak_cold_hour)
             intensity = {Severity.ADVISORY: "light", Severity.WATCH: "deep", Severity.WARNING: "extreme"}[sev]
-            advice = {
-                Severity.ADVISORY: "Wear an extra jacket when heading out.",
-                Severity.WATCH:    "Dress warmly and limit time outdoors.",
-                Severity.WARNING:  "Dangerously cold. Wear layers and protect your hands, feet and face.",
-            }[sev]
+            feels = int(forecast.min_feels_like)
+            if sev >= Severity.WARNING:
+                body = (
+                    f"Feels like {feels}°C around {when}. Dangerously cold — "
+                    "tap to see how long it lasts."
+                )
+            else:
+                body = f"Feels like {feels}°C around {when}. Tap to see when it warms up."
             alerts.append(Alert(
                 alert_type="cold_snap",
                 severity=sev,
                 title=f"🥶 {intensity.capitalize()} cold around {when}",
-                body=f"Feels-like temperature dropping to {int(forecast.min_feels_like)}°C around {when}. {advice}",
+                body=body,
                 emoji="🥶",
             ))
 
@@ -267,8 +293,11 @@ def evaluate(
         alerts.append(Alert(
             alert_type="lightning_nearby",
             severity=Severity.WARNING,
-            title="⚡ Lightning activity nearby",
-            body=f"{lightning.count} lightning strike(s) recorded within {dist_str}. Stay away from open areas, trees and power poles.",
+            title="⚡ Lightning striking nearby",
+            body=(
+                f"{lightning.count} strike(s) within {dist_str}. Stay away from "
+                "open ground and tall trees — tap to see it live on the map."
+            ),
             emoji="⚡",
         ))
 
@@ -280,7 +309,10 @@ def evaluate(
             alert_type="storm_nearby",
             severity=Severity.WARNING,
             title=f"🌀 Storm {dist_str} away{name_str}",
-            body=f"{storms.count} active storm(s) in your area. Follow weather bulletins and prepare a response plan.",
+            body=(
+                f"{storms.count} active storm(s) near you. "
+                "Tap to see the track and where it's heading."
+            ),
             emoji="🌀",
         ))
 
@@ -345,8 +377,13 @@ def build_summary(
 
     body = ", ".join(summary_bits) + "."
     if alerts:
+        # Chỉ nêu *cái gì* và *lúc nào* — mức độ, diễn biến, giờ kết thúc nằm
+        # trong app. Đây là chỗ tạo tò mò rẻ nhất: user đã biết có chuyện xảy
+        # ra, chỉ chưa biết nặng tới đâu.
         highlights = " • ".join(f"{a.emoji} {a.title.split(' ', 1)[-1]}" for a in alerts)
-        body = f"{body} {highlights}"
+        body = f"{body} {highlights}. Tap for the full timeline."
+    else:
+        body = f"{body} Tap to see how the hours play out."
 
     title = f"{day_label}'s weather · {location_name}"
     return title, body

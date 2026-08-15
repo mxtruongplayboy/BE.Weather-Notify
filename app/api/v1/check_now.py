@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from firebase_admin import firestore as fb_firestore
 
-from app.services import ai_personalization, alert_engine, weather_client
+from app.services import ai_personalization, alert_engine, translator, weather_client
 from app.services.alert_engine import Severity, Thresholds
 
 logger = logging.getLogger(__name__)
@@ -163,6 +163,13 @@ async def check_now(req: CheckNowRequest):
                     ai_enabled = True
                 except Exception:
                     logger.exception("check_now: AI failed loc=%s", location_id)
+
+            # Cùng bước dịch với đường push của alert_worker — không có nó thì
+            # inbox trong app hiện tiếng Anh trong khi push cùng nội dung lại
+            # hiện tiếng của user.
+            final_title, final_body = translator.translate_alert(
+                final_title, final_body, device_data.get("languageCode"),
+            )
 
             # Save to in_app_notifications (Firestore listener picks it up)
             notif_id = str(uuid.uuid4())
